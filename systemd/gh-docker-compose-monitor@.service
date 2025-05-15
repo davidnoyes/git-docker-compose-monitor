@@ -1,0 +1,13 @@
+[Unit]
+Description=GitHub Compose Monitor (%i)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=composebot
+EnvironmentFile=/opt/gh-docker-compose-monitor/projects/%i/config
+ExecStart=/opt/gh-docker-compose-monitor/common/compose-deploy.sh
+SyslogIdentifier=gh-docker-compose-monitor-%i
+StandardOutput=journal
+StandardError=journal

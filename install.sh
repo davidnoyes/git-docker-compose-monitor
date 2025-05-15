@@ -2,22 +2,21 @@
 set -euo pipefail
 
 PROJECT_NAME="${1:-project1}"
-USER="deploy"
-BASE_DIR="/opt/github-monitor"
+USER="composebot"
+BASE_DIR="/opt/gh-docker-compose-monitor"
 SCRIPT_SRC_DIR="$(dirname "$0")"
-SCRIPT_PATH="$BASE_DIR/common/deploy.sh"
-ENV_FILE="$BASE_DIR/projects/$PROJECT_NAME/.env"
+SCRIPT_PATH="$BASE_DIR/common/compose-deploy.sh"
+CONFIG_FILE="$BASE_DIR/projects/$PROJECT_NAME/config"
 SYSTEMD_DIR="/etc/systemd/system"
 
-# Ensure script is run as root
 if [[ "$EUID" -ne 0 ]]; then
   echo "Please run as root (e.g. with sudo)"
   exit 1
 fi
 
-echo "[*] Verifying project .env exists for '$PROJECT_NAME'"
-if [ ! -f "$SCRIPT_SRC_DIR/projects/$PROJECT_NAME/.env" ]; then
-  echo "ERROR: Environment file '$SCRIPT_SRC_DIR/projects/$PROJECT_NAME/.env' not found."
+echo "[*] Verifying project config exists for '$PROJECT_NAME'"
+if [ ! -f "$SCRIPT_SRC_DIR/projects/$PROJECT_NAME/config" ]; then
+  echo "ERROR: Configuration file '$SCRIPT_SRC_DIR/projects/$PROJECT_NAME/config' not found."
   exit 1
 fi
 
@@ -26,26 +25,33 @@ mkdir -p "$BASE_DIR/common"
 mkdir -p "$BASE_DIR/projects/$PROJECT_NAME"
 
 echo "[*] Installing deploy script..."
-cp "$SCRIPT_SRC_DIR/common/deploy.sh" "$SCRIPT_PATH"
+cp "$SCRIPT_SRC_DIR/common/compose-deploy.sh" "$SCRIPT_PATH"
 chmod +x "$SCRIPT_PATH"
 chown "$USER:$USER" "$SCRIPT_PATH"
 
-echo "[*] Installing environment file..."
-cp "$SCRIPT_SRC_DIR/projects/$PROJECT_NAME/.env" "$ENV_FILE"
-chmod 600 "$ENV_FILE"
-chown "$USER:$USER" "$ENV_FILE"
+echo "[*] Installing configuration file..."
+cp "$SCRIPT_SRC_DIR/projects/$PROJECT_NAME/config" "$CONFIG_FILE"
+chmod 600 "$CONFIG_FILE"
+chown "$USER:$USER" "$CONFIG_FILE"
 
 echo "[*] Installing systemd templates..."
-cp "$SCRIPT_SRC_DIR/systemd/github-monitor@.service" "$SYSTEMD_DIR/github-monitor@.service"
-cp "$SCRIPT_SRC_DIR/systemd/github-monitor@.timer" "$SYSTEMD_DIR/github-monitor@.timer"
+cp "$SCRIPT_SRC_DIR/systemd/gh-docker-compose-monitor@.service" "$SYSTEMD_DIR/gh-docker-compose-monitor@.service"
+cp "$SCRIPT_SRC_DIR/systemd/gh-docker-compose-monitor@.timer" "$SYSTEMD_DIR/gh-docker-compose-monitor@.timer"
+
+echo "[*] Adding GitHub fingerprint to known_hosts..."
+sudo -u $USER mkdir -p /home/$USER/.ssh
+sudo ssh-keyscan github.com | sudo -u $USER tee /home/$USER/.ssh/known_hosts > /dev/null
+sudo chown -R $USER:$USER /home/$USER/.ssh
+chmod 700 /home/$USER/.ssh
+chmod 600 /home/$USER/.ssh/known_hosts
 
 echo "[*] Reloading systemd..."
 systemctl daemon-reexec
 systemctl daemon-reload
 
 echo "[*] Enabling and starting timer for $PROJECT_NAME..."
-systemctl enable --now "github-monitor@${PROJECT_NAME}.timer"
+systemctl enable --now "gh-docker-compose-monitor@${PROJECT_NAME}.timer"
 
 echo "[✔] Installation complete for project: $PROJECT_NAME"
 echo "🛈 To check logs:"
-echo "  journalctl -u github-monitor@${PROJECT_NAME}"
+echo "  journalctl -u gh-docker-compose-monitor@${PROJECT_NAME}"

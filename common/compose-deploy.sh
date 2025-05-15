@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-ENV_FILE=${ENV_FILE:-"/opt/github-monitor/projects/$PROJECT_NAME/.env"}
-[ -f "$ENV_FILE" ] && source "$ENV_FILE"
+CONFIG_FILE=${CONFIG_FILE:-"/opt/gh-docker-compose-monitor/projects/$PROJECT_NAME/config"}
+[ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
 
 function notify_discord() {
     local title="$1"
@@ -35,11 +35,17 @@ LOCAL_HASH=$(git rev-parse HEAD)
 REMOTE_HASH=$(git rev-parse origin/main)
 
 if [ "$LOCAL_HASH" == "$REMOTE_HASH" ]; then
-    echo "No Git changes detected."
-    exit 0
+    if [ ! -f "$CONFIG_HASH_FILE" ]; then
+        echo "First run detected — no prior config hash, proceeding with initial deployment."
+    elif ! docker compose --project-name "$PROJECT_NAME" ps --quiet | grep -q .; then
+        echo "No running containers for project — performing initial deployment."
+    else
+        echo "No Git changes detected. Exiting."
+        exit 0
+    fi
 fi
 
-echo "Git changes detected. Pulling..."
+echo "Git changes detected or initial deploy. Pulling latest..."
 git reset --hard origin/main
 COMMIT_MSG=$(git log -1 --pretty=%B)
 
