@@ -45,7 +45,8 @@ jobs:
 
       - name: Create tarball
         run: |
-          tar --exclude=.git --exclude=gh-docker-compose-monitor.tar.gz -czf gh-docker-compose-monitor.tar.gz .
+          mkdir artefacts
+          tar --exclude=.git --exclude=./artefacts -cvzf artefacts/gh-docker-compose-monitor.tar.gz .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -54,4 +55,4 @@ jobs:
           name: Release ${{ steps.bump_tag.outputs.new_tag }}
           body: |
             Automated release for ${{ steps.bump_tag.outputs.new_tag }}
-          files: gh-docker-compose-monitor.tar.gz
+          files: artefacts/gh-docker-compose-monitor.tar.gz
