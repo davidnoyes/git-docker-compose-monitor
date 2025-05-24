@@ -101,19 +101,20 @@ This ensures `git clone` and `git fetch` work without prompting to trust GitHub 
 
 - `--config-file=PATH`: **(Required)** Specify the configuration file for the project.
 - `--test-discord`: Send a test notification to the configured Discord webhook and exit. The test message includes a realistic multi-line commit message and a full-length commit hash.
+- `--log-level=LEVEL`: Set log verbosity. Options are `DEBUG`, `INFO`, `WARN`, `ERROR`. Default is `INFO`.
 - `--help` or `-h`: Show usage information.
 
 Example:
 
 ```bash
-./compose-deploy.sh --config-file=./projects/project1/config --test-discord
+./compose-deploy.sh --config-file=./projects/project1/config --log-level=DEBUG --test-discord
 ```
 
 ## 🛡️ Validation & Error Handling
 
 - The script validates that all required variables are set in the config file.
 - The `DISCORD_WEBHOOK_URL` must be set in the environment or config.
-- All user-facing messages are timestamped.
+- All user-facing messages are timestamped and respect the configured log level.
 - If Docker Compose commands fail, error output is sent to Discord.
 - All Discord notifications are properly escaped for Markdown and JSON.
 

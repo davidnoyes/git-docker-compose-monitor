@@ -18,9 +18,32 @@ function notify() {
       "$DISCORD_WEBHOOK_URL" > /dev/null
 }
 
-# Standard logging function with timestamp
+# Standard logging function with log levels
+LOG_LEVEL="INFO"
+LOG_LEVELS=("DEBUG" "INFO" "WARN" "ERROR")
+
 function log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    local level="$1"
+    shift
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*"
+    # Map log levels to numbers
+    case "$level" in
+        DEBUG) level_num=0 ;;
+        INFO)  level_num=1 ;;
+        WARN)  level_num=2 ;;
+        ERROR) level_num=3 ;;
+        *)     level_num=1 ;; # Default to INFO
+    esac
+    case "$LOG_LEVEL" in
+        DEBUG) min_level=0 ;;
+        INFO)  min_level=1 ;;
+        WARN)  min_level=2 ;;
+        ERROR) min_level=3 ;;
+        *)     min_level=1 ;;
+    esac
+    if [ "$level_num" -ge "$min_level" ]; then
+        echo "$msg"
+    fi
 }
 
 escape_json() {
@@ -35,13 +58,14 @@ for arg in "$@"; do
   case $arg in
     --help|-h)
       echo "gh-docker-compose-monitor compose-deploy.sh"
-      echo "Usage: $0 --config-file=PATH [--test-discord] [--help|-h]"
+      echo "Usage: $0 --config-file=PATH [--test-discord] [--log-level=LEVEL] [--help|-h]"
       echo ""
       echo "Automates git pull, Docker Compose file diff, and deployment for a project."
       echo ""
       echo "Flags:"
       echo "  --config-file=PATH   (Required) Specify project config file."
       echo "  --test-discord       Send a test notification to Discord and exit."
+      echo "  --log-level=LEVEL    Set log level (DEBUG, INFO, WARN, ERROR). Default: INFO."
       echo "  --help, -h           Show this help message and exit."
       exit 0
       ;;
@@ -53,12 +77,16 @@ for arg in "$@"; do
       TEST_DISCORD=true
       shift
       ;;
+    --log-level=*)
+      LOG_LEVEL="${arg#*=}"
+      shift
+      ;;
   esac
 done
 
 # Ensure config file is provided
 if [ -z "$CONFIG_FILE" ]; then
-  log "ERROR: --config-file=PATH is required."
+  log ERROR "--config-file=PATH is required."
   exit 1
 fi
 
@@ -69,14 +97,14 @@ fi
 REQUIRED_VARS=(PROJECT_NAME PROJECT_DIR REPO_URL)
 for var in "${REQUIRED_VARS[@]}"; do
   if [ -z "${!var:-}" ]; then
-    log "ERROR: Required variable '$var' is not set in $CONFIG_FILE."
+    log ERROR "Required variable '$var' is not set in $CONFIG_FILE."
     exit 1
   fi
 done
 
 # Validate Discord webhook for notifications
 if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then
-  log "ERROR: DISCORD_WEBHOOK_URL environment variable is not set."
+  log ERROR "DISCORD_WEBHOOK_URL environment variable is not set."
   exit 1
 fi
 
@@ -119,7 +147,7 @@ $compose_err"
 }
 trap handle_error ERR
 
-log "Starting sync..."
+log INFO "Starting sync..."
 
 # Clone repo if it doesn't exist
 if [ ! -d "$REPO_DIR/.git" ]; then
@@ -135,16 +163,25 @@ REMOTE_HASH=$(git rev-parse origin/main)
 # Check if there are any new commits or if this is the first run
 if [ "$LOCAL_HASH" == "$REMOTE_HASH" ]; then
     if [ ! -f "$COMPOSE_HASH_FILE" ]; then
-        log "First run detected — no prior Compose file hash, proceeding with initial deployment."
-    elif ! docker compose --project-name "$PROJECT_NAME" ps --quiet | grep -q .; then
-        log "No running containers for project — performing initial deployment."
+        log INFO "First run detected — no prior Compose file hash, proceeding with initial deployment."
     else
-        log "No Git changes detected. Exiting."
-        exit 0
+        # More robust check for running containers
+        CONTAINER_IDS=$(docker compose --project-name "$PROJECT_NAME" ps --quiet)
+        if [ -z "$CONTAINER_IDS" ]; then
+            log WARN "No running containers for project ($PROJECT_NAME) — performing initial deployment."
+            log DEBUG "docker compose ps output:"
+            docker compose --project-name "$PROJECT_NAME" ps
+            log DEBUG "docker ps -a (filtered by project label):"
+            docker ps -a --filter "label=com.docker.compose.project=$PROJECT_NAME"
+        else
+            log DEBUG "Found running containers for project ($PROJECT_NAME): $CONTAINER_IDS"
+            log INFO "No Git changes detected. Exiting."
+            exit 0
+        fi
     fi
 fi
 
-log "Git changes detected or initial deploy. Pulling latest..."
+log INFO "Git changes detected or initial deploy. Pulling latest..."
 git reset --hard -q origin/main > /dev/null 2>&1
 COMMIT_MSG=$(git log -1 --pretty=%B)
 
@@ -160,7 +197,7 @@ RESTART_SERVICE=""
 [[ "$COMMIT_MSG" =~ \[compose:restart:(.+)\] ]] && RESTART_SERVICE="${BASH_REMATCH[1]}"
 
 if $SKIP_DEPLOY; then
-    log "Skipping deploy due to [compose:noop]"
+    log INFO "Skipping deploy due to [compose:noop]"
     notify "Deployment Skipped" "Commit: \`$REMOTE_HASH\`
 Directive: \`[compose:noop]\`"
     exit 0
