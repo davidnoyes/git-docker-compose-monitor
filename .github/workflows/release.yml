@@ -45,7 +45,7 @@ jobs:
 
       - name: Create tarball
         run: |
-          tar czf gh-docker-compose-monitor.tar.gz .
+          tar --exclude=.git --exclude=gh-docker-compose-monitor.tar.gz -czf gh-docker-compose-monitor.tar.gz .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
