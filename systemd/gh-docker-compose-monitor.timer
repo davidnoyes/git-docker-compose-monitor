@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic Monitor for GitHub Compose
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
