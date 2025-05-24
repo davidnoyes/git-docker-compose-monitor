@@ -204,6 +204,8 @@ Directive: \`[compose:noop]\`"
 fi
 
 # Generate Compose YAML for diffing and hash calculation
+# (We capture stderr to /tmp/compose_error.log here so that if the config is invalid,
+# the error can be included in Discord notifications by the error handler.)
 docker compose --project-name "$PROJECT_NAME" config > /tmp/${PROJECT_NAME}_compose.yaml 2>/tmp/compose_error.log
 CURRENT_HASH=$(sha256sum /tmp/${PROJECT_NAME}_compose.yaml | awk '{print $1}')
 PREVIOUS_HASH=$(cat "$COMPOSE_HASH_FILE" 2>/dev/null || echo "none")
@@ -221,27 +223,24 @@ ACTION="none"
 
 # Handle forced full restart
 if $FORCE_DOWN; then
-    : > /tmp/compose_error.log
-    docker compose --project-name "$PROJECT_NAME" down --remove-orphans 2>/tmp/compose_error.log
+    docker compose --project-name "$PROJECT_NAME" down --remove-orphans
     if $IMAGE_CHANGED; then
-        docker compose --project-name "$PROJECT_NAME" pull 2>/tmp/compose_error.log
+        docker compose --project-name "$PROJECT_NAME" pull
     fi
-    docker compose --project-name "$PROJECT_NAME" up -d --build 2>/tmp/compose_error.log
+    docker compose --project-name "$PROJECT_NAME" up -d --build
     ACTION="Forced full restart [compose:down]"
 
 # Handle single service restart
 elif [[ -n "$RESTART_SERVICE" ]]; then
-    : > /tmp/compose_error.log
-    docker compose --project-name "$PROJECT_NAME" up -d --build "$RESTART_SERVICE" 2>/tmp/compose_error.log
+    docker compose --project-name "$PROJECT_NAME" up -d --build "$RESTART_SERVICE"
     ACTION="Restarted service \`$RESTART_SERVICE\` [compose:restart:$RESTART_SERVICE]"
 
 # Handle forced update
 elif $FORCE_UP; then
-    : > /tmp/compose_error.log
     if $IMAGE_CHANGED; then
-        docker compose --project-name "$PROJECT_NAME" pull 2>/tmp/compose_error.log
+        docker compose --project-name "$PROJECT_NAME" pull
     fi
-    docker compose --project-name "$PROJECT_NAME" up -d --build 2>/tmp/compose_error.log
+    docker compose --project-name "$PROJECT_NAME" up -d --build
     ACTION="Forced update [compose:up]"
 
 # Handle Compose file changes
@@ -257,25 +256,22 @@ elif [[ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]]; then
     fi
 
     if [[ -n "$REMOVED" ]]; then
-        : > /tmp/compose_error.log
-        docker compose --project-name "$PROJECT_NAME" down --remove-orphans 2>/tmp/compose_error.log
+        docker compose --project-name "$PROJECT_NAME" down --remove-orphans
         if $IMAGE_CHANGED; then
-            docker compose --project-name "$PROJECT_NAME" pull 2>/tmp/compose_error.log
+            docker compose --project-name "$PROJECT_NAME" pull
         fi
-        docker compose --project-name "$PROJECT_NAME" up -d --build 2>/tmp/compose_error.log
+        docker compose --project-name "$PROJECT_NAME" up -d --build
         ACTION="Compose file changed — removal detected, full restart triggered"
     else
-        : > /tmp/compose_error.log
         if $IMAGE_CHANGED; then
-            docker compose --project-name "$PROJECT_NAME" pull 2>/tmp/compose_error.log
+            docker compose --project-name "$PROJECT_NAME" pull
         fi
-        docker compose --project-name "$PROJECT_NAME" up -d --build 2>/tmp/compose_error.log
+        docker compose --project-name "$PROJECT_NAME" up -d --build
         ACTION="Compose file changed — safe update"
     fi
 else
     # No Compose file changes detected, just ensure containers are up
-    : > /tmp/compose_error.log
-    docker compose --project-name "$PROJECT_NAME" up -d 2>/tmp/compose_error.log
+    docker compose --project-name "$PROJECT_NAME" up -d
     ACTION="No Compose file changes — safe up"
 fi
 
