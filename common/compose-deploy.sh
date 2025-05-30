@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+# Check for yq dependency
+if ! command -v yq >/dev/null 2>&1; then
+    echo "ERROR: 'yq' is required but not installed. Please install yq (https://github.com/mikefarah/yq) and try again."
+    exit 1
+fi
+
 # Sends a notification to Discord and prints to stdout
 function notify() {
     local title="$1"
@@ -53,12 +59,15 @@ escape_json() {
 
 CONFIG_FILE=""
 TEST_DISCORD=false
+FORCE_UP_FLAG=false
+FORCE_SYNC_FLAG=false
+
 # Parse command-line arguments
 for arg in "$@"; do
   case $arg in
     --help|-h)
       echo "gh-docker-compose-monitor compose-deploy.sh"
-      echo "Usage: $0 --config-file=PATH [--test-discord] [--log-level=LEVEL] [--help|-h]"
+      echo "Usage: $0 --config-file=PATH [--test-discord] [--log-level=LEVEL] [--force-sync] [--force-up] [--help|-h]"
       echo ""
       echo "Automates git pull, Docker Compose file diff, and deployment for a project."
       echo ""
@@ -66,6 +75,8 @@ for arg in "$@"; do
       echo "  --config-file=PATH   (Required) Specify project config file."
       echo "  --test-discord       Send a test notification to Discord and exit."
       echo "  --log-level=LEVEL    Set log level (DEBUG, INFO, WARN, ERROR). Default: INFO."
+      echo "  --force-sync         Force a git pull before any other actions."
+      echo "  --force-up           Run 'docker compose up -d' regardless of git changes. If used with --force-sync, git pull happens first."
       echo "  --help, -h           Show this help message and exit."
       exit 0
       ;;
@@ -79,6 +90,14 @@ for arg in "$@"; do
       ;;
     --log-level=*)
       LOG_LEVEL="${arg#*=}"
+      shift
+      ;;
+    --force-up)
+      FORCE_UP_FLAG=true
+      shift
+      ;;
+    --force-sync)
+      FORCE_SYNC_FLAG=true
       shift
       ;;
   esac
@@ -155,30 +174,129 @@ if [ ! -d "$REPO_DIR/.git" ]; then
 fi
 
 cd "$REPO_DIR"
+
+# --force-sync flag logic (should be before force-up)
+if $FORCE_SYNC_FLAG; then
+    log INFO "--force-sync flag detected. Forcing git pull."
+    git fetch --quiet origin main > /dev/null 2>&1
+    git reset --hard -q origin/main > /dev/null 2>&1
+fi
+
 git fetch --quiet origin main > /dev/null 2>&1
 
 LOCAL_HASH=$(git rev-parse HEAD)
 REMOTE_HASH=$(git rev-parse origin/main)
 
-# Check if there are any new commits or if this is the first run
-if [ "$LOCAL_HASH" == "$REMOTE_HASH" ]; then
-    if [ ! -f "$COMPOSE_HASH_FILE" ]; then
-        log INFO "First run detected — no prior Compose file hash, proceeding with initial deployment."
-    else
-        # More robust check for running containers
-        CONTAINER_IDS=$(docker compose --project-name "$PROJECT_NAME" ps --quiet)
-        if [ -z "$CONTAINER_IDS" ]; then
-            log WARN "No running containers for project ($PROJECT_NAME) — performing initial deployment."
-            log DEBUG "docker compose ps output:"
-            docker compose --project-name "$PROJECT_NAME" ps
-            log DEBUG "docker ps -a (filtered by project label):"
-            docker ps -a --filter "label=com.docker.compose.project=$PROJECT_NAME"
-        else
-            log DEBUG "Found running containers for project ($PROJECT_NAME): $CONTAINER_IDS"
-            log INFO "No Git changes detected. Exiting."
-            exit 0
-        fi
+# Generate Compose YAML for diffing and hash calculation
+# (We capture stderr to /tmp/compose_error.log here so that if the config is invalid,
+# the error can be included in Discord notifications by the error handler.)
+docker compose --project-name "$PROJECT_NAME" config > /tmp/${PROJECT_NAME}_compose.yaml 2>/tmp/compose_error.log
+CURRENT_HASH=$(sha256sum /tmp/${PROJECT_NAME}_compose.yaml | awk '{print $1}')
+PREVIOUS_HASH=$(cat "$COMPOSE_HASH_FILE" 2>/dev/null || echo "none")
+
+IMAGE_CHANGED=false
+
+# Detect if any image lines have changed in the Compose file
+if [[ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]]; then
+    if grep -q 'image:' /tmp/${PROJECT_NAME}_compose.yaml; then
+        IMAGE_CHANGED=true
     fi
+fi
+
+# Detect floating tags in Compose YAML
+FLOATING_TAGS_REGEX=':(latest|develop|edge|nightly)$'
+FLOATING_TAG_FOUND=false
+if grep -E "image:.*$FLOATING_TAGS_REGEX" /tmp/${PROJECT_NAME}_compose.yaml > /dev/null; then
+    FLOATING_TAG_FOUND=true
+fi
+
+# Default interval if not set in config
+FLOATING_IMAGE_PULL_INTERVAL_MINUTES="${FLOATING_IMAGE_PULL_INTERVAL_MINUTES:-60}"
+FLOATING_PULL_STATE_FILE="$PROJECT_DIR/.last_floating_pull"
+
+NEED_FLOATING_PULL=false
+if $FLOATING_TAG_FOUND; then
+    NOW_EPOCH=$(date +%s)
+    LAST_PULL_EPOCH=0
+    if [ -f "$FLOATING_PULL_STATE_FILE" ]; then
+        LAST_PULL_EPOCH=$(cat "$FLOATING_PULL_STATE_FILE")
+    fi
+    INTERVAL_SEC=$((FLOATING_IMAGE_PULL_INTERVAL_MINUTES * 60))
+    if (( FLOATING_IMAGE_PULL_INTERVAL_MINUTES > 0 )) && (( NOW_EPOCH - LAST_PULL_EPOCH >= INTERVAL_SEC )); then
+        NEED_FLOATING_PULL=true
+    fi
+fi
+
+# --force-up flag logic (should be here)
+if $FORCE_UP_FLAG; then
+    log INFO "--force-up flag detected. Running 'docker compose up -d' regardless of git changes."
+    docker compose --project-name "$PROJECT_NAME" up -d
+    ACTION="Forced up via --force-up flag"
+    notify "$PROJECT_NAME - Deployment complete" "Action: $ACTION"
+    exit 0
+fi
+
+# If no git/compose changes and no floating pull needed, exit if containers are running
+if [ "$LOCAL_HASH" == "$REMOTE_HASH" ] && [ -f "$COMPOSE_HASH_FILE" ] && ! $NEED_FLOATING_PULL; then
+    # More robust check for running containers
+    CONTAINER_IDS=$(docker compose --project-name "$PROJECT_NAME" ps --quiet)
+    if [ -z "$CONTAINER_IDS" ]; then
+        log WARN "No running containers for project ($PROJECT_NAME) — performing initial deployment."
+        log DEBUG "docker compose ps output:"
+        docker compose --project-name "$PROJECT_NAME" ps
+        log DEBUG "docker ps -a (filtered by project label):"
+        docker ps -a --filter "label=com.docker.compose.project=$PROJECT_NAME"
+    else
+        log DEBUG "Found running containers for project ($PROJECT_NAME): $CONTAINER_IDS"
+        log INFO "No Git changes detected. Exiting."
+        exit 0
+    fi
+fi
+
+# If floating tag needs a pull, do it and exit
+if $NEED_FLOATING_PULL; then
+    log INFO "Floating tag image detected and interval elapsed. Checking for updated images..."
+
+    # Pull latest images (ignore output for now)
+    docker compose --project-name "$PROJECT_NAME" pull
+
+    # Use yq to find all services with floating tags
+    FLOATING_SERVICES=$(yq '.services | to_entries[] | select(.value.image | test(":(latest|develop|edge|nightly)$")) | .key' /tmp/${PROJECT_NAME}_compose.yaml)
+    
+    UPDATED_SERVICES=""
+    for SERVICE in $FLOATING_SERVICES; do
+        # Get running container ID for the service
+        CONTAINER_ID=$(docker compose --project-name "$PROJECT_NAME" ps -q "$SERVICE")
+        # Get image name from compose yaml for this service
+        IMAGE_NAME=$(yq -r ".services.\"$SERVICE\".image" /tmp/${PROJECT_NAME}_compose.yaml)
+        if [ -z "$CONTAINER_ID" ] || [ -z "$IMAGE_NAME" ]; then
+            continue
+        fi
+        # Get image ID of running container
+        RUNNING_IMAGE_ID=$(docker inspect --format='{{.Image}}' "$CONTAINER_ID" 2>/dev/null || echo "")
+        # Get image ID of latest pulled image
+        LATEST_IMAGE_ID=$(docker image ls --no-trunc --format '{{.ID}}' "$IMAGE_NAME" | head -n1)
+        # Compare
+        if [ -n "$RUNNING_IMAGE_ID" ] && [ -n "$LATEST_IMAGE_ID" ] && [ "$RUNNING_IMAGE_ID" != "$LATEST_IMAGE_ID" ]; then
+            UPDATED_SERVICES="$UPDATED_SERVICES$SERVICE ($IMAGE_NAME)\n"
+        fi
+    done
+
+    if [ -n "$UPDATED_SERVICES" ]; then
+        docker compose --project-name "$PROJECT_NAME" up -d
+        ACTION="Floating tag image(s) refreshed"
+        notify "$PROJECT_NAME - Floating Tag Update" "Action: $ACTION
+
+Services updated (image ID changed):
+\`\`\`
+$UPDATED_SERVICES
+\`\`\`
+"
+    fi
+
+    # Always update the timestamp, even if no images were updated
+    date +%s > "$FLOATING_PULL_STATE_FILE"
+    exit 0
 fi
 
 log INFO "Git changes detected or initial deploy. Pulling latest..."
@@ -201,22 +319,6 @@ if $SKIP_DEPLOY; then
     notify "Deployment Skipped" "Commit: \`$REMOTE_HASH\`
 Directive: \`[compose:noop]\`"
     exit 0
-fi
-
-# Generate Compose YAML for diffing and hash calculation
-# (We capture stderr to /tmp/compose_error.log here so that if the config is invalid,
-# the error can be included in Discord notifications by the error handler.)
-docker compose --project-name "$PROJECT_NAME" config > /tmp/${PROJECT_NAME}_compose.yaml 2>/tmp/compose_error.log
-CURRENT_HASH=$(sha256sum /tmp/${PROJECT_NAME}_compose.yaml | awk '{print $1}')
-PREVIOUS_HASH=$(cat "$COMPOSE_HASH_FILE" 2>/dev/null || echo "none")
-
-IMAGE_CHANGED=false
-
-# Detect if any image lines have changed in the Compose file
-if [[ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]]; then
-    if grep -q 'image:' /tmp/${PROJECT_NAME}_compose.yaml; then
-        IMAGE_CHANGED=true
-    fi
 fi
 
 ACTION="none"

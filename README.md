@@ -73,42 +73,102 @@ This ensures `git clone` and `git fetch` work without prompting to trust GitHub 
     project1/
       config
 /etc/systemd/system/
-  gh-docker-compose-monitor@.service
-  gh-docker-compose-monitor@.timer
+  gh-docker-compose-monitor.service
+  gh-docker-compose-monitor.timer
 ```
 
 ## 🚀 Usage
 
-1. Edit `projects/project1/config` with your Git repo and webhook details.  
+1. **Edit the config file:**  
+   Edit `projects/project1/config` with your Git repo and webhook details.  
    **Required variables:**  
    - `PROJECT_NAME`
    - `PROJECT_DIR`
    - `REPO_URL`
    - (Optional) `DISCORD_WEBHOOK_URL` (can also be set as an environment variable)
-2. Run the install script:
+
+2. **Copy the script and config to your target location:**  
+   Place `compose-deploy.sh` and your `config` file in a directory on your server, for example:
 
    ```bash
-   sudo ./install.sh project1
+   sudo mkdir -p /opt/gh-docker-compose-monitor/projects/project1
+   sudo cp common/compose-deploy.sh /opt/gh-docker-compose-monitor/common/
+   sudo cp projects/project1/config /opt/gh-docker-compose-monitor/projects/project1/config
+   sudo chmod +x /opt/gh-docker-compose-monitor/common/compose-deploy.sh
    ```
 
-3. View logs with:
+3. **Install the systemd service and timer:**  
+   Copy the provided unit files to `/etc/systemd/system/`:
 
    ```bash
-   journalctl -u gh-docker-compose-monitor@project1
+   sudo cp systemd/gh-docker-compose-monitor.service /etc/systemd/system/
+   sudo cp systemd/gh-docker-compose-monitor.timer /etc/systemd/system/
    ```
+
+4. **Enable and start the timer:**  
+
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now gh-docker-compose-monitor.timer
+   ```
+
+5. **View logs:**  
+
+   ```bash
+   journalctl -u gh-docker-compose-monitor
+   ```
+
+6. **Manual run (for testing):**  
+   You can manually run the script at any time:
+
+   ```bash
+   /opt/gh-docker-compose-monitor/common/compose-deploy.sh --config-file=/opt/gh-docker-compose-monitor/projects/project1/config
+   ```
+
+Example usage:
+
+```bash
+/opt/gh-docker-compose-monitor/common/compose-deploy.sh --config-file=/opt/gh-docker-compose-monitor/projects/project1/config
+```
+
+---
 
 ### 🔧 Script Flags
 
 - `--config-file=PATH`: **(Required)** Specify the configuration file for the project.
 - `--test-discord`: Send a test notification to the configured Discord webhook and exit. The test message includes a realistic multi-line commit message and a full-length commit hash.
 - `--log-level=LEVEL`: Set log verbosity. Options are `DEBUG`, `INFO`, `WARN`, `ERROR`. Default is `INFO`.
+- `--force-sync`: Force a `git pull` from the remote repository before any other actions.
+- `--force-up`: Run `docker compose up -d` regardless of git or Compose file changes. If used with `--force-sync`, the git pull will happen first.
 - `--help` or `-h`: Show usage information.
 
 Example:
 
 ```bash
-./compose-deploy.sh --config-file=./projects/project1/config --log-level=DEBUG --test-discord
+./compose-deploy.sh --config-file=./projects/project1/config --force-sync --force-up --log-level=DEBUG
 ```
+
+---
+
+### ⚠️ Requirements
+
+- **yq** is required for YAML parsing.  
+  Install with:
+  ```bash
+  sudo wget -O /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+  sudo chmod +x /usr/local/bin/yq
+  ```
+  The script will exit with an error if `yq` is not installed.
+
+---
+
+### 📝 Floating Tag Image Checks
+
+- The interval for checking floating tag images (e.g., `latest`, `develop`, `edge`, `nightly`) is controlled by `FLOATING_IMAGE_PULL_INTERVAL_MINUTES` in your config file.
+- **Set to `0` to disable floating tag image checks entirely.**
+- When enabled, the script will only redeploy containers if the image ID of the running container differs from the latest pulled image.
+
+---
 
 ## 🛡️ Validation & Error Handling
 
