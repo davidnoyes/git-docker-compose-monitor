@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_VERSION="v0.0.10"
+SCRIPT_VERSION="v0.0.11"
 
 ###############################################################################
 # Dependency Check
