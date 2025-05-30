@@ -340,15 +340,17 @@ if $NEED_FLOATING_PULL; then
     UPDATED_SERVICES=()
     while IFS= read -r SERVICE; do
         [ -z "$SERVICE" ] && continue
-        CONTAINER_ID=$(DC ps -q "$SERVICE")
-        IMAGE_NAME=$(yq -r ".services.\"$SERVICE\".image" "/tmp/${PROJECT_NAME}_compose.yaml")
+        SERVICE_CLEAN=${SERVICE#\"}
+        SERVICE_CLEAN=${SERVICE_CLEAN%\"}
+        CONTAINER_ID=$(DC ps -q "$SERVICE_CLEAN")
+        IMAGE_NAME=$(yq -r ".services.\"$SERVICE_CLEAN\".image" "/tmp/${PROJECT_NAME}_compose.yaml")
         if [ -z "$CONTAINER_ID" ] || [ -z "$IMAGE_NAME" ]; then
             continue
         fi
         RUNNING_IMAGE_ID=$(docker inspect --format='{{.Image}}' "$CONTAINER_ID" 2>/dev/null || echo "")
         LATEST_IMAGE_ID=$(docker image ls --no-trunc --format '{{.ID}}' "$IMAGE_NAME" | head -n1)
         if [ -n "$RUNNING_IMAGE_ID" ] && [ -n "$LATEST_IMAGE_ID" ] && [ "$RUNNING_IMAGE_ID" != "$LATEST_IMAGE_ID" ]; then
-            UPDATED_SERVICES+=("$SERVICE ($IMAGE_NAME)")
+            UPDATED_SERVICES+=("$SERVICE_CLEAN ($IMAGE_NAME)")
         fi
     done <<< "$FLOATING_SERVICES"
 
