@@ -48,7 +48,8 @@ fi
 log() {
     local level="$1"
     shift
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*"
+    local msg
+    msg="[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*"
     local level_num min_level color
     case "$level" in
         DEBUG) level_num=0; color=$COLOR_DEBUG ;;
@@ -73,8 +74,8 @@ notify() {
     local title="$1"
     local message="$2"
     local esc_title esc_message json_payload
-    esc_title=$(echo "$title" | sed 's/`/\\`/g')
-    esc_message=$(echo "$message" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{printf "%s\\n", $0}' | sed '$s/\\n$//')
+    esc_title="${title//\`/\\\`}"
+    esc_message=$(echo "$message" | sed "s/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g" | awk '{printf "%s\\n", $0}' | sed '$s/\\n$//')
     json_payload="{\"embeds\":[{\"title\":\"$esc_title\",\"description\":\"$esc_message\",\"color\":5814783}]}"
     echo "$title: $message"
     if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then return; fi
@@ -446,8 +447,6 @@ fi
 
 mv "/tmp/${PROJECT_NAME}_compose.yaml" "$LAST_COMPOSE_FILE"
 echo "$CURRENT_HASH" > "$COMPOSE_HASH_FILE"
-
-SANITIZED_COMMIT_MSG=$(echo "$COMMIT_MSG" | sed 's/`/\\`/g' | tr '\n' '\\n')
 
 if [[ "$ACTION" == "Compose file changed — removal detected, full restart triggered" ]] || \
    [[ "$ACTION" == "Compose file changed — safe update" ]] || \
