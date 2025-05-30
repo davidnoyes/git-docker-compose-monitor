@@ -43,6 +43,12 @@ jobs:
           git push origin "$new_tag"
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
+      - name: Update script version for release
+        run: |
+          sed -i "s/^SCRIPT_VERSION=.*/SCRIPT_VERSION=\"${{ steps.bump_tag.outputs.new_tag }}\"/" common/compose-deploy.sh
+          git add common/compose-deploy.sh
+          git commit -m "Release ${{ steps.bump_tag.outputs.new_tag }}: set script version"
+
       - name: Create tarball
         run: |
           mkdir artefacts

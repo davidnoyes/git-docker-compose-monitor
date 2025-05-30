@@ -1,44 +1,61 @@
 #!/bin/bash
 set -euo pipefail
 
-# Check for yq dependency
-if ! command -v yq >/dev/null 2>&1; then
-    echo "ERROR: 'yq' is required but not installed. Please install yq (https://github.com/mikefarah/yq) and try again."
-    exit 1
+SCRIPT_VERSION="develop"
+
+###############################################################################
+# Dependency Check
+###############################################################################
+for dep in yq docker git; do
+    if ! command -v "$dep" >/dev/null 2>&1; then
+        echo "ERROR: '$dep' is required but not installed."
+        case "$dep" in
+            yq)
+                echo "Install with:"
+                echo "  sudo wget -O /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+                echo "  sudo chmod +x /usr/local/bin/yq"
+                ;;
+            docker)
+                echo "See: https://docs.docker.com/get-docker/"
+                ;;
+            git)
+                echo "See: https://git-scm.com/book/en/v2/Getting-Started-Installing-Git"
+                ;;
+        esac
+        exit 1
+    fi
+done
+
+###############################################################################
+# Logging & Notification Functions
+###############################################################################
+LOG_LEVEL="INFO"
+
+if [ -t 1 ]; then
+    COLOR_DEBUG="\033[36m"
+    COLOR_INFO="\033[32m"
+    COLOR_WARN="\033[33m"
+    COLOR_ERROR="\033[31m"
+    COLOR_RESET="\033[0m"
+else
+    COLOR_DEBUG=""
+    COLOR_INFO=""
+    COLOR_WARN=""
+    COLOR_ERROR=""
+    COLOR_RESET=""
 fi
 
-# Sends a notification to Discord and prints to stdout
-function notify() {
-    local title="$1"
-    local message="$2"
-    # Escape backticks for Discord formatting in the title only
-    local esc_title esc_message json_payload
-    esc_title=$(echo "$title" | sed 's/`/\\`/g')
-    # For the message, escape backslashes and double quotes, but NOT backticks
-    esc_message=$(echo "$message" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{printf "%s\\n", $0}' | sed '$s/\\n$//')
-    json_payload="{\"embeds\":[{\"title\":\"$esc_title\",\"description\":\"$esc_message\",\"color\":5814783}]}"
-    echo "$title: $message"
-    if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then return; fi
-    curl -s -X POST -H "Content-Type: application/json" \
-      -d "$json_payload" \
-      "$DISCORD_WEBHOOK_URL" > /dev/null
-}
-
-# Standard logging function with log levels
-LOG_LEVEL="INFO"
-LOG_LEVELS=("DEBUG" "INFO" "WARN" "ERROR")
-
-function log() {
+log() {
     local level="$1"
     shift
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*"
-    # Map log levels to numbers
+    local level_num min_level color
     case "$level" in
-        DEBUG) level_num=0 ;;
-        INFO)  level_num=1 ;;
-        WARN)  level_num=2 ;;
-        ERROR) level_num=3 ;;
-        *)     level_num=1 ;; # Default to INFO
+        DEBUG) level_num=0; color=$COLOR_DEBUG ;;
+        INFO)  level_num=1; color=$COLOR_INFO ;;
+        WARN)  level_num=2; color=$COLOR_WARN ;;
+        ERROR) level_num=3; color=$COLOR_ERROR ;;
+        *)     level_num=1; color=$COLOR_INFO ;;
     esac
     case "$LOG_LEVEL" in
         DEBUG) min_level=0 ;;
@@ -48,90 +65,131 @@ function log() {
         *)     min_level=1 ;;
     esac
     if [ "$level_num" -ge "$min_level" ]; then
-        echo "$msg"
+        echo -e "${color}${msg}${COLOR_RESET}"
     fi
 }
 
-escape_json() {
-  # Escape backslashes, then double quotes, then control characters
-  echo "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\r//g'
+notify() {
+    local title="$1"
+    local message="$2"
+    local esc_title esc_message json_payload
+    esc_title=$(echo "$title" | sed 's/`/\\`/g')
+    esc_message=$(echo "$message" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{printf "%s\\n", $0}' | sed '$s/\\n$//')
+    json_payload="{\"embeds\":[{\"title\":\"$esc_title\",\"description\":\"$esc_message\",\"color\":5814783}]}"
+    echo "$title: $message"
+    if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then return; fi
+    curl -s -X POST -H "Content-Type: application/json" \
+      -d "$json_payload" \
+      "$DISCORD_WEBHOOK_URL" > /dev/null
 }
 
+log_error_and_exit() {
+    log ERROR "$1"
+    notify "Deployment Error" "$1"
+    exit 1
+}
+
+###############################################################################
+# Argument Parsing
+###############################################################################
 CONFIG_FILE=""
 TEST_DISCORD=false
 FORCE_UP_FLAG=false
 FORCE_SYNC_FLAG=false
 
-# Parse command-line arguments
 for arg in "$@"; do
-  case $arg in
-    --help|-h)
-      echo "gh-docker-compose-monitor compose-deploy.sh"
-      echo "Usage: $0 --config-file=PATH [--test-discord] [--log-level=LEVEL] [--force-sync] [--force-up] [--help|-h]"
-      echo ""
-      echo "Automates git pull, Docker Compose file diff, and deployment for a project."
-      echo ""
-      echo "Flags:"
-      echo "  --config-file=PATH   (Required) Specify project config file."
-      echo "  --test-discord       Send a test notification to Discord and exit."
-      echo "  --log-level=LEVEL    Set log level (DEBUG, INFO, WARN, ERROR). Default: INFO."
-      echo "  --force-sync         Force a git pull before any other actions."
-      echo "  --force-up           Run 'docker compose up -d' regardless of git changes. If used with --force-sync, git pull happens first."
-      echo "  --help, -h           Show this help message and exit."
-      exit 0
-      ;;
-    --config-file=*)
-      CONFIG_FILE="${arg#*=}"
-      shift
-      ;;
-    --test-discord)
-      TEST_DISCORD=true
-      shift
-      ;;
-    --log-level=*)
-      LOG_LEVEL="${arg#*=}"
-      shift
-      ;;
-    --force-up)
-      FORCE_UP_FLAG=true
-      shift
-      ;;
-    --force-sync)
-      FORCE_SYNC_FLAG=true
-      shift
-      ;;
-  esac
+    case $arg in
+        --help|-h)
+            cat <<EOF
+gh-docker-compose-monitor compose-deploy.sh v$SCRIPT_VERSION
+
+Usage: $0 --config-file=PATH [--test-discord] [--log-level=LEVEL] [--force-sync] [--force-up] [--version] [--help|-h]
+
+Flags:
+  --config-file=PATH   (Required) Specify project config file.
+  --test-discord       Send a test notification to Discord and exit.
+  --log-level=LEVEL    Set log level (DEBUG, INFO, WARN, ERROR). Default: INFO.
+  --force-sync         Force a git pull before any other actions.
+  --force-up           Run 'docker compose up -d' regardless of git changes. If used with --force-sync, git pull happens first.
+  --version            Show script version and exit.
+  --help, -h           Show this help message and exit.
+
+Example:
+  $0 --config-file=/opt/gh-docker-compose-monitor/projects/project1/config
+EOF
+            exit 0
+            ;;
+        --version)
+            echo "compose-deploy.sh version $SCRIPT_VERSION"
+            exit 0
+            ;;
+        --config-file=*)
+            CONFIG_FILE="${arg#*=}"
+            shift
+            ;;
+        --test-discord)
+            TEST_DISCORD=true
+            shift
+            ;;
+        --log-level=*)
+            LOG_LEVEL="${arg#*=}"
+            shift
+            ;;
+        --force-up)
+            FORCE_UP_FLAG=true
+            shift
+            ;;
+        --force-sync)
+            FORCE_SYNC_FLAG=true
+            shift
+            ;;
+    esac
 done
 
-# Ensure config file is provided
+###############################################################################
+# Config Loading & Validation
+###############################################################################
 if [ -z "$CONFIG_FILE" ]; then
-  log ERROR "--config-file=PATH is required."
-  exit 1
+    log_error_and_exit "--config-file=PATH is required."
 fi
 
-# Load project config file (must define PROJECT_NAME, PROJECT_DIR, REPO_URL, etc.)
-[ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
+if [ ! -f "$CONFIG_FILE" ]; then
+    log_error_and_exit "Config file '$CONFIG_FILE' does not exist."
+fi
 
-# Validate required config variables
+# shellcheck source=/dev/null
+source "$CONFIG_FILE"
+
+PROJECT_NAME="${PROJECT_NAME:-}"
+PROJECT_DIR="${PROJECT_DIR:-}"
+REPO_URL="${REPO_URL:-}"
+DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
+
 REQUIRED_VARS=(PROJECT_NAME PROJECT_DIR REPO_URL)
 for var in "${REQUIRED_VARS[@]}"; do
-  if [ -z "${!var:-}" ]; then
-    log ERROR "Required variable '$var' is not set in $CONFIG_FILE."
-    exit 1
-  fi
+    if [ -z "${!var:-}" ]; then
+        log_error_and_exit "Required variable '$var' is not set in $CONFIG_FILE or environment.
+
+Example config:
+PROJECT_NAME=example
+REPO_URL=git@github.com:your-org/example-repo.git
+PROJECT_DIR=/opt/gh-docker-compose-monitor/projects/example
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your-token
+"
+    fi
 done
 
-# Validate Discord webhook for notifications
 if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then
-  log ERROR "DISCORD_WEBHOOK_URL environment variable is not set."
-  exit 1
+    log_error_and_exit "DISCORD_WEBHOOK_URL environment variable is not set."
 fi
 
 REPO_DIR="$PROJECT_DIR/repo"
 COMPOSE_HASH_FILE="$PROJECT_DIR/.compose_hash"
 LAST_COMPOSE_FILE="$PROJECT_DIR/.last_compose.yaml"
 
-# Allow testing Discord notifications directly
+###############################################################################
+# Discord Test Mode
+###############################################################################
 if $TEST_DISCORD; then
     TEST_COMMIT_MSG="This is a test commit message.
 It has multiple lines.
@@ -147,11 +205,12 @@ Message: $TEST_COMMIT_MSG"
     exit 0
 fi
 
-# Error handler for the script
-function handle_error() {
+###############################################################################
+# Error Handling
+###############################################################################
+handle_error() {
     local exit_code=$?
     local msg="ERROR: Script failed with exit code $exit_code"
-    # If docker compose error output exists, include it in the notification
     if [ -s /tmp/compose_error.log ]; then
         local compose_err
         compose_err=$(cat /tmp/compose_error.log)
@@ -160,22 +219,30 @@ function handle_error() {
 Docker Compose error output:
 $compose_err"
     fi
-    echo "$msg"
+    log ERROR "$msg"
     notify "Deployment Error" "$msg"
     exit $exit_code
 }
 trap handle_error ERR
 
+###############################################################################
+# Compose Command Helper
+###############################################################################
+DC() {
+    docker compose --project-name "$PROJECT_NAME" "$@"
+}
+
+###############################################################################
+# Git Operations
+###############################################################################
 log INFO "Starting sync..."
 
-# Clone repo if it doesn't exist
 if [ ! -d "$REPO_DIR/.git" ]; then
     git clone --quiet "$REPO_URL" "$REPO_DIR"
 fi
 
 cd "$REPO_DIR"
 
-# --force-sync flag logic (should be before force-up)
 if $FORCE_SYNC_FLAG; then
     log INFO "--force-sync flag detected. Forcing git pull."
     git fetch --quiet origin main > /dev/null 2>&1
@@ -187,30 +254,29 @@ git fetch --quiet origin main > /dev/null 2>&1
 LOCAL_HASH=$(git rev-parse HEAD)
 REMOTE_HASH=$(git rev-parse origin/main)
 
-# Generate Compose YAML for diffing and hash calculation
-# (We capture stderr to /tmp/compose_error.log here so that if the config is invalid,
-# the error can be included in Discord notifications by the error handler.)
-docker compose --project-name "$PROJECT_NAME" config > /tmp/${PROJECT_NAME}_compose.yaml 2>/tmp/compose_error.log
-CURRENT_HASH=$(sha256sum /tmp/${PROJECT_NAME}_compose.yaml | awk '{print $1}')
+###############################################################################
+# Compose File Hashing
+###############################################################################
+DC config > "/tmp/${PROJECT_NAME}_compose.yaml" 2>/tmp/compose_error.log
+CURRENT_HASH=$(sha256sum "/tmp/${PROJECT_NAME}_compose.yaml" | awk '{print $1}')
 PREVIOUS_HASH=$(cat "$COMPOSE_HASH_FILE" 2>/dev/null || echo "none")
 
 IMAGE_CHANGED=false
-
-# Detect if any image lines have changed in the Compose file
 if [[ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]]; then
-    if grep -q 'image:' /tmp/${PROJECT_NAME}_compose.yaml; then
+    if grep -q 'image:' "/tmp/${PROJECT_NAME}_compose.yaml"; then
         IMAGE_CHANGED=true
     fi
 fi
 
-# Detect floating tags in Compose YAML
+###############################################################################
+# Floating Tag Logic
+###############################################################################
 FLOATING_TAGS_REGEX=':(latest|develop|edge|nightly)$'
 FLOATING_TAG_FOUND=false
-if grep -E "image:.*$FLOATING_TAGS_REGEX" /tmp/${PROJECT_NAME}_compose.yaml > /dev/null; then
+if grep -E "image:.*$FLOATING_TAGS_REGEX" "/tmp/${PROJECT_NAME}_compose.yaml" > /dev/null; then
     FLOATING_TAG_FOUND=true
 fi
 
-# Default interval if not set in config
 FLOATING_IMAGE_PULL_INTERVAL_MINUTES="${FLOATING_IMAGE_PULL_INTERVAL_MINUTES:-60}"
 FLOATING_PULL_STATE_FILE="$PROJECT_DIR/.last_floating_pull"
 
@@ -227,10 +293,20 @@ if $FLOATING_TAG_FOUND; then
     fi
 fi
 
-# --force-up flag logic (should be here)
+###############################################################################
+# Compose Actions (Helper Functions)
+###############################################################################
+compose_up()   { DC up -d; }
+compose_pull() { DC pull;  }
+
+###############################################################################
+# Main Logic
+###############################################################################
+
+# --force-up flag logic
 if $FORCE_UP_FLAG; then
     log INFO "--force-up flag detected. Running 'docker compose up -d' regardless of git changes."
-    docker compose --project-name "$PROJECT_NAME" up -d
+    compose_up
     ACTION="Forced up via --force-up flag"
     notify "$PROJECT_NAME - Deployment complete" "Action: $ACTION"
     exit 0
@@ -238,12 +314,11 @@ fi
 
 # If no git/compose changes and no floating pull needed, exit if containers are running
 if [ "$LOCAL_HASH" == "$REMOTE_HASH" ] && [ -f "$COMPOSE_HASH_FILE" ] && ! $NEED_FLOATING_PULL; then
-    # More robust check for running containers
-    CONTAINER_IDS=$(docker compose --project-name "$PROJECT_NAME" ps --quiet)
+    CONTAINER_IDS=$(DC ps --quiet)
     if [ -z "$CONTAINER_IDS" ]; then
         log WARN "No running containers for project ($PROJECT_NAME) — performing initial deployment."
         log DEBUG "docker compose ps output:"
-        docker compose --project-name "$PROJECT_NAME" ps
+        DC ps
         log DEBUG "docker ps -a (filtered by project label):"
         docker ps -a --filter "label=com.docker.compose.project=$PROJECT_NAME"
     else
@@ -257,62 +332,61 @@ fi
 if $NEED_FLOATING_PULL; then
     log INFO "Floating tag image detected and interval elapsed. Checking for updated images..."
 
-    # Pull latest images (ignore output for now)
-    docker compose --project-name "$PROJECT_NAME" pull
+    compose_pull
 
-    # Use yq to find all services with floating tags
-    FLOATING_SERVICES=$(yq '.services | to_entries[] | select(.value.image | test(":(latest|develop|edge|nightly)$")) | .key' /tmp/${PROJECT_NAME}_compose.yaml)
-    
-    UPDATED_SERVICES=""
-    for SERVICE in $FLOATING_SERVICES; do
-        # Get running container ID for the service
-        CONTAINER_ID=$(docker compose --project-name "$PROJECT_NAME" ps -q "$SERVICE")
-        # Get image name from compose yaml for this service
-        IMAGE_NAME=$(yq -r ".services.\"$SERVICE\".image" /tmp/${PROJECT_NAME}_compose.yaml)
+    FLOATING_SERVICES=$(yq '.services | to_entries[] | select(.value.image | test(":(latest|develop|edge|nightly)$")) | .key' "/tmp/${PROJECT_NAME}_compose.yaml")
+    log DEBUG "Floating services found: $FLOATING_SERVICES"
+    UPDATED_SERVICES=()
+    while IFS= read -r SERVICE; do
+        [ -z "$SERVICE" ] && continue
+        CONTAINER_ID=$(DC ps -q "$SERVICE")
+        IMAGE_NAME=$(yq -r ".services.\"$SERVICE\".image" "/tmp/${PROJECT_NAME}_compose.yaml")
         if [ -z "$CONTAINER_ID" ] || [ -z "$IMAGE_NAME" ]; then
             continue
         fi
-        # Get image ID of running container
         RUNNING_IMAGE_ID=$(docker inspect --format='{{.Image}}' "$CONTAINER_ID" 2>/dev/null || echo "")
-        # Get image ID of latest pulled image
         LATEST_IMAGE_ID=$(docker image ls --no-trunc --format '{{.ID}}' "$IMAGE_NAME" | head -n1)
-        # Compare
         if [ -n "$RUNNING_IMAGE_ID" ] && [ -n "$LATEST_IMAGE_ID" ] && [ "$RUNNING_IMAGE_ID" != "$LATEST_IMAGE_ID" ]; then
-            UPDATED_SERVICES="$UPDATED_SERVICES$SERVICE ($IMAGE_NAME)\n"
+            UPDATED_SERVICES+=("$SERVICE ($IMAGE_NAME)")
         fi
-    done
+    done <<< "$FLOATING_SERVICES"
 
-    if [ -n "$UPDATED_SERVICES" ]; then
-        docker compose --project-name "$PROJECT_NAME" up -d
+    if [ "${#UPDATED_SERVICES[@]}" -gt 0 ]; then
+        compose_up
         ACTION="Floating tag image(s) refreshed"
         notify "$PROJECT_NAME - Floating Tag Update" "Action: $ACTION
 
 Services updated (image ID changed):
 \`\`\`
-$UPDATED_SERVICES
+$(printf "%s\n" "${UPDATED_SERVICES[@]}")
 \`\`\`
 "
     fi
 
-    # Always update the timestamp, even if no images were updated
     date +%s > "$FLOATING_PULL_STATE_FILE"
     exit 0
 fi
+
+###############################################################################
+# Commit Message Parsing
+###############################################################################
+parse_commit_directives() {
+    local msg="$1"
+    SKIP_DEPLOY=false
+    FORCE_DOWN=false
+    FORCE_UP=false
+    RESTART_SERVICE=""
+    [[ "$msg" == *"[compose:noop]"* ]] && SKIP_DEPLOY=true
+    [[ "$msg" == *"[compose:down]"* ]] && FORCE_DOWN=true
+    [[ "$msg" == *"[compose:up]"* ]] && FORCE_UP=true
+    [[ "$msg" =~ \[compose:restart:(.+)\] ]] && RESTART_SERVICE="${BASH_REMATCH[1]}"
+}
 
 log INFO "Git changes detected or initial deploy. Pulling latest..."
 git reset --hard -q origin/main > /dev/null 2>&1
 COMMIT_MSG=$(git log -1 --pretty=%B)
 
-FORCE_DOWN=false
-FORCE_UP=false
-SKIP_DEPLOY=false
-RESTART_SERVICE=""
-
-# Parse commit message for deployment directives
-[[ "$COMMIT_MSG" == *"[compose:noop]"* ]] && SKIP_DEPLOY=true
-[[ "$COMMIT_MSG" == *"[compose:down]"* ]] && FORCE_DOWN=true
-[[ "$COMMIT_MSG" == *"[compose:up]"* ]] && FORCE_UP=true
-[[ "$COMMIT_MSG" =~ \[compose:restart:(.+)\] ]] && RESTART_SERVICE="${BASH_REMATCH[1]}"
+parse_commit_directives "$COMMIT_MSG"
 
 if $SKIP_DEPLOY; then
     log INFO "Skipping deploy due to [compose:noop]"
@@ -323,34 +397,28 @@ fi
 
 ACTION="none"
 
-# Handle forced full restart
 if $FORCE_DOWN; then
-    docker compose --project-name "$PROJECT_NAME" down --remove-orphans
+    DC down --remove-orphans
     if $IMAGE_CHANGED; then
-        docker compose --project-name "$PROJECT_NAME" pull
+        compose_pull
     fi
-    docker compose --project-name "$PROJECT_NAME" up -d --build
+    DC up -d --build
     ACTION="Forced full restart [compose:down]"
 
-# Handle single service restart
 elif [[ -n "$RESTART_SERVICE" ]]; then
-    docker compose --project-name "$PROJECT_NAME" up -d --build "$RESTART_SERVICE"
+    DC up -d --build "$RESTART_SERVICE"
     ACTION="Restarted service \`$RESTART_SERVICE\` [compose:restart:$RESTART_SERVICE]"
 
-# Handle forced update
 elif $FORCE_UP; then
     if $IMAGE_CHANGED; then
-        docker compose --project-name "$PROJECT_NAME" pull
+        compose_pull
     fi
-    docker compose --project-name "$PROJECT_NAME" up -d --build
+    DC up -d --build
     ACTION="Forced update [compose:up]"
 
-# Handle Compose file changes
 elif [[ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]]; then
     if [ -f "$LAST_COMPOSE_FILE" ]; then
-        # Detect removed or renamed services, volumes, or networks in Compose file
-        # Only trigger a full restart if a top-level service/volume/network or their block is removed
-        REMOVED=$(diff -u "$LAST_COMPOSE_FILE" /tmp/${PROJECT_NAME}_compose.yaml \
+        REMOVED=$(diff -u "$LAST_COMPOSE_FILE" "/tmp/${PROJECT_NAME}_compose.yaml" \
             | grep '^-' \
             | grep -E '^\-\s+(services:|volumes:|networks:)$|^\-\s{2,}[a-zA-Z0-9_-]+:$' || true)
     else
@@ -358,33 +426,29 @@ elif [[ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]]; then
     fi
 
     if [[ -n "$REMOVED" ]]; then
-        docker compose --project-name "$PROJECT_NAME" down --remove-orphans
+        DC down --remove-orphans
         if $IMAGE_CHANGED; then
-            docker compose --project-name "$PROJECT_NAME" pull
+            compose_pull
         fi
-        docker compose --project-name "$PROJECT_NAME" up -d --build
+        DC up -d --build
         ACTION="Compose file changed — removal detected, full restart triggered"
     else
         if $IMAGE_CHANGED; then
-            docker compose --project-name "$PROJECT_NAME" pull
+            compose_pull
         fi
-        docker compose --project-name "$PROJECT_NAME" up -d --build
+        DC up -d --build
         ACTION="Compose file changed — safe update"
     fi
 else
-    # No Compose file changes detected, just ensure containers are up
-    docker compose --project-name "$PROJECT_NAME" up -d
+    compose_up
     ACTION="No Compose file changes — safe up"
 fi
 
-# Save the latest Compose YAML and hash for future comparisons
-mv /tmp/${PROJECT_NAME}_compose.yaml "$LAST_COMPOSE_FILE"
+mv "/tmp/${PROJECT_NAME}_compose.yaml" "$LAST_COMPOSE_FILE"
 echo "$CURRENT_HASH" > "$COMPOSE_HASH_FILE"
 
-# Sanitize commit message for Discord (escape backticks and newlines)
 SANITIZED_COMMIT_MSG=$(echo "$COMMIT_MSG" | sed 's/`/\\`/g' | tr '\n' '\\n')
 
-# Notify user of deployment result
 if [[ "$ACTION" == "Compose file changed — removal detected, full restart triggered" ]] || \
    [[ "$ACTION" == "Compose file changed — safe update" ]] || \
    [[ "$ACTION" == "Forced full restart [compose:down]" ]] || \
