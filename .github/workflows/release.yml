@@ -1,3 +1,4 @@
+---
 name: Auto Tag & Release
 
 on:
@@ -16,15 +17,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run ShellCheck on all shell scripts
-        uses: azohra/shellcheck-action@v0.8.0
+      - name: Run Shell Linter (ShellCheck + shfmt)
+        uses: Azbagheri/shell-linter@v0.6.0
         with:
           path: 'common'
-
-      - name: Lint workflow YAML files
-        uses: ibiqlik/action-yamllint@v3
-        with:
-          file_or_dir: .github/workflows
 
   tag-and-release:
     name: Tag, Package, and Release
@@ -65,23 +61,26 @@ jobs:
 
       - name: Update script version for release
         run: |
-          sed -i "s/^SCRIPT_VERSION=.*/SCRIPT_VERSION=\"${{ steps.bump_tag.outputs.new_tag }}\"/" common/compose-deploy.sh
+          sed -i "s/^SCRIPT_VERSION=.*/SCRIPT_VERSION=\"${{ steps.bump_tag.outputs.new_tag }}\"/" \
+            common/compose-deploy.sh
           git add common/compose-deploy.sh
           git commit -m "Release ${{ steps.bump_tag.outputs.new_tag }}: set script version"
+
+      - name: Create tarball
+        run: |
+          mkdir artefacts
+          tar --exclude=.git --exclude=./artefacts \
+            -cvzf artefacts/gh-docker-compose-monitor.tar.gz .
+
+      - name: Verify tarball contents
+        run: |
+          tar -tzf artefacts/gh-docker-compose-monitor.tar.gz \
+            | grep common/compose-deploy.sh
 
       - name: Create and push tag
         run: |
           git tag "${{ steps.bump_tag.outputs.new_tag }}"
           git push origin "${{ steps.bump_tag.outputs.new_tag }}"
-
-      - name: Create tarball
-        run: |
-          mkdir artefacts
-          tar --exclude=.git --exclude=./artefacts -cvzf artefacts/gh-docker-compose-monitor.tar.gz .
-
-      - name: Verify tarball contents
-        run: |
-          tar -tzf artefacts/gh-docker-compose-monitor.tar.gz | grep common/compose-deploy.sh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
