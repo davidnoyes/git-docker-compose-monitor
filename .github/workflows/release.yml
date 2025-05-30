@@ -1,3 +1,4 @@
+---
 name: Auto Tag & Release
 
 on:
@@ -65,7 +66,8 @@ jobs:
 
       - name: Update script version for release
         run: |
-          sed -i "s/^SCRIPT_VERSION=.*/SCRIPT_VERSION=\"${{ steps.bump_tag.outputs.new_tag }}\"/" common/compose-deploy.sh
+          sed -i "s/^SCRIPT_VERSION=.*/SCRIPT_VERSION=\"${{ steps.bump_tag.outputs.new_tag }}\"/" \
+            common/compose-deploy.sh
           git add common/compose-deploy.sh
           git commit -m "Release ${{ steps.bump_tag.outputs.new_tag }}: set script version"
 
@@ -77,11 +79,13 @@ jobs:
       - name: Create tarball
         run: |
           mkdir artefacts
-          tar --exclude=.git --exclude=./artefacts -cvzf artefacts/gh-docker-compose-monitor.tar.gz .
+          tar --exclude=.git --exclude=./artefacts \
+            -cvzf artefacts/gh-docker-compose-monitor.tar.gz .
 
       - name: Verify tarball contents
         run: |
-          tar -tzf artefacts/gh-docker-compose-monitor.tar.gz | grep common/compose-deploy.sh
+          tar -tzf artefacts/gh-docker-compose-monitor.tar.gz \
+            | grep common/compose-deploy.sh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
