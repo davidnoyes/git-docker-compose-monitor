@@ -16,8 +16,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run ShellCheck on all shell scripts
-        uses: azohra/shellcheck-action@v0.8.0
+      - name: Run Shell Linter (ShellCheck + shfmt)
+        uses: Azbagheri/shell-linter@v0.6.0
         with:
           path: 'common'
 
