@@ -340,8 +340,8 @@ if $NEED_FLOATING_PULL; then
     UPDATED_SERVICES=()
     while IFS= read -r SERVICE; do
         [ -z "$SERVICE" ] && continue
-        # Remove any accidental quotes from SERVICE
-        SERVICE_CLEAN=$(echo "$SERVICE" | sed 's/^"\(.*\)"$/\1/')
+        SERVICE_CLEAN=${SERVICE#\"}
+        SERVICE_CLEAN=${SERVICE_CLEAN%\"}
         CONTAINER_ID=$(DC ps -q "$SERVICE_CLEAN")
         IMAGE_NAME=$(yq -r ".services.\"$SERVICE_CLEAN\".image" "/tmp/${PROJECT_NAME}_compose.yaml")
         if [ -z "$CONTAINER_ID" ] || [ -z "$IMAGE_NAME" ]; then
