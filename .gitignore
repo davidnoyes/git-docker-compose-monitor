@@ -1,3 +1,4 @@
 .DS_Store
 /projects/*
 !/projects/project1/
+docker-test/*
