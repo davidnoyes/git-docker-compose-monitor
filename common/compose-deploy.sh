@@ -396,10 +396,12 @@ parse_commit_directives() {
 	FORCE_DOWN=false
 	FORCE_UP=false
 	RESTART_SERVICE=""
-	[[ $msg == *"[compose:noop]"* ]] && SKIP_DEPLOY=true
-	[[ $msg == *"[compose:down]"* ]] && FORCE_DOWN=true
-	[[ $msg == *"[compose:up]"* ]] && FORCE_UP=true
-	[[ $msg =~ \[compose:restart:(.+)\] ]] && RESTART_SERVICE="${BASH_REMATCH[1]}"
+	[[ ${msg:-} == *"[compose:noop]"* ]] && SKIP_DEPLOY=true
+	[[ ${msg:-} == *"[compose:down]"* ]] && FORCE_DOWN=true
+	[[ ${msg:-} == *"[compose:up]"* ]] && FORCE_UP=true
+	if [[ -n ${msg:-} ]] && [[ $msg =~ \[compose:restart:(.+)\] ]]; then
+		RESTART_SERVICE="${BASH_REMATCH[1]}"
+	fi
 }
 
 log INFO "Git changes detected or initial deploy. Pulling latest..."
