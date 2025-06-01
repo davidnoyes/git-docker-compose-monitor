@@ -9,15 +9,15 @@ SCRIPT_PATH="$BASE_DIR/common/compose-deploy.sh"
 CONFIG_FILE="$BASE_DIR/projects/$PROJECT_NAME/config"
 SYSTEMD_DIR="/etc/systemd/system"
 
-if [[ "$EUID" -ne 0 ]]; then
-  echo "Please run as root (e.g. with sudo)"
-  exit 1
+if [[ $EUID -ne 0 ]]; then
+	echo "Please run as root (e.g. with sudo)"
+	exit 1
 fi
 
 echo "[*] Verifying project config exists for '$PROJECT_NAME'"
 if [ ! -f "$SCRIPT_SRC_DIR/projects/$PROJECT_NAME/config" ]; then
-  echo "ERROR: Configuration file '$SCRIPT_SRC_DIR/projects/$PROJECT_NAME/config' not found."
-  exit 1
+	echo "ERROR: Configuration file '$SCRIPT_SRC_DIR/projects/$PROJECT_NAME/config' not found."
+	exit 1
 fi
 
 echo "[*] Creating deployment directories..."
@@ -40,7 +40,7 @@ cp "$SCRIPT_SRC_DIR/systemd/gh-docker-compose-monitor@.timer" "$SYSTEMD_DIR/gh-d
 
 echo "[*] Adding GitHub fingerprint to known_hosts..."
 sudo -u $USER mkdir -p /home/$USER/.ssh
-sudo ssh-keyscan github.com | sudo -u $USER tee /home/$USER/.ssh/known_hosts > /dev/null
+sudo ssh-keyscan github.com | sudo -u $USER tee /home/$USER/.ssh/known_hosts >/dev/null
 sudo chown -R $USER:$USER /home/$USER/.ssh
 chmod 700 /home/$USER/.ssh
 chmod 600 /home/$USER/.ssh/known_hosts
