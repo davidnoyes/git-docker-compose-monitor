@@ -211,7 +211,9 @@ fi
 ###############################################################################
 handle_error() {
     local exit_code=$?
-    local msg="ERROR: Script failed with exit code $exit_code"
+    local line_no=${BASH_LINENO[0]}
+    local cmd="${BASH_COMMAND}"
+    local msg="ERROR: Script failed at line $line_no: '$cmd' with exit code $exit_code"
     if [ -s /tmp/compose_error.log ]; then
         local compose_err
         compose_err=$(cat /tmp/compose_error.log)
@@ -224,7 +226,7 @@ $compose_err"
     notify "Deployment Error" "$msg"
     exit $exit_code
 }
-trap handle_error ERR
+trap 'handle_error' ERR
 
 ###############################################################################
 # Compose Command Helper
