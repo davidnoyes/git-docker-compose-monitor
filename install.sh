@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_NAME="${1:-project1}"
 USER="composebot"
-BASE_DIR="/opt/gh-docker-compose-monitor"
+BASE_DIR="/opt/git-docker-compose-monitor"
 SCRIPT_SRC_DIR="$(dirname "$0")"
 SCRIPT_PATH="$BASE_DIR/common/compose-deploy.sh"
 CONFIG_FILE="$BASE_DIR/projects/$PROJECT_NAME/config"
@@ -35,8 +35,8 @@ chmod 600 "$CONFIG_FILE"
 chown "$USER:$USER" "$CONFIG_FILE"
 
 echo "[*] Installing systemd templates..."
-cp "$SCRIPT_SRC_DIR/systemd/gh-docker-compose-monitor@.service" "$SYSTEMD_DIR/gh-docker-compose-monitor@.service"
-cp "$SCRIPT_SRC_DIR/systemd/gh-docker-compose-monitor@.timer" "$SYSTEMD_DIR/gh-docker-compose-monitor@.timer"
+cp "$SCRIPT_SRC_DIR/systemd/git-docker-compose-monitor@.service" "$SYSTEMD_DIR/git-docker-compose-monitor@.service"
+cp "$SCRIPT_SRC_DIR/systemd/git-docker-compose-monitor@.timer" "$SYSTEMD_DIR/git-docker-compose-monitor@.timer"
 
 echo "[*] Adding GitHub fingerprint to known_hosts..."
 sudo -u $USER mkdir -p /home/$USER/.ssh
@@ -50,8 +50,8 @@ systemctl daemon-reexec
 systemctl daemon-reload
 
 echo "[*] Enabling and starting timer for $PROJECT_NAME..."
-systemctl enable --now "gh-docker-compose-monitor@${PROJECT_NAME}.timer"
+systemctl enable --now "git-docker-compose-monitor@${PROJECT_NAME}.timer"
 
 echo "[✔] Installation complete for project: $PROJECT_NAME"
 echo "🛈 To check logs:"
-echo "  journalctl -u gh-docker-compose-monitor@${PROJECT_NAME}"
+echo "  journalctl -u git-docker-compose-monitor@${PROJECT_NAME}"
