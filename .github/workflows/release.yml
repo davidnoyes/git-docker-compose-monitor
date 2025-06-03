@@ -74,11 +74,11 @@ jobs:
         run: |
           mkdir artefacts
           tar --exclude=.git --exclude=./artefacts \
-            -cvzf artefacts/gh-docker-compose-monitor.tar.gz .
+            -cvzf artefacts/git-docker-compose-monitor.tar.gz .
 
       - name: Verify tarball contents
         run: |
-          tar -tzf artefacts/gh-docker-compose-monitor.tar.gz \
+          tar -tzf artefacts/git-docker-compose-monitor.tar.gz \
             | grep common/compose-deploy.sh
 
       - name: Create and push tag
@@ -93,4 +93,4 @@ jobs:
           name: Release ${{ steps.bump_tag.outputs.new_tag }}
           body: |
             Automated release for ${{ steps.bump_tag.outputs.new_tag }}
-          files: artefacts/gh-docker-compose-monitor.tar.gz
+          files: artefacts/git-docker-compose-monitor.tar.gz

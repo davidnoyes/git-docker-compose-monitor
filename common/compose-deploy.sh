@@ -117,7 +117,7 @@ for arg in "$@"; do
 	case $arg in
 	--help | -h)
 		cat <<EOF
-gh-docker-compose-monitor compose-deploy.sh v$SCRIPT_VERSION
+git-docker-compose-monitor compose-deploy.sh v$SCRIPT_VERSION
 
 Usage: $0 --config-file=PATH [--test-discord] [--log-level=LEVEL] [--force-sync] [--force-up] [--version] [--help|-h]
 
@@ -131,7 +131,7 @@ Flags:
   --help, -h           Show this help message and exit.
 
 Example:
-  $0 --config-file=/opt/gh-docker-compose-monitor/projects/project1/config
+  $0 --config-file=/opt/git-docker-compose-monitor/projects/project1/config
 EOF
 		exit 0
 		;;
@@ -189,7 +189,7 @@ for var in "${REQUIRED_VARS[@]}"; do
 Example config:
 PROJECT_NAME=example
 REPO_URL=git@github.com:your-org/example-repo.git
-PROJECT_DIR=/opt/gh-docker-compose-monitor/projects/example
+PROJECT_DIR=/opt/git-docker-compose-monitor/projects/example
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your-token
 "
 	fi

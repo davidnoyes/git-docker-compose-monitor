@@ -1,6 +1,6 @@
-# gh-docker-compose-monitor
+# git-docker-compose-monitor
 
-This project allows you to monitor multiple private GitHub repositories for Docker Compose projects and automatically deploy them when changes are detected.
+This project allows you to monitor multiple private Git repositories for Docker Compose projects and automatically deploy them when changes are detected.
 
 ## Features
 
@@ -66,15 +66,15 @@ This ensures `git clone` and `git fetch` work without prompting to trust GitHub 
 ## 📁 Directory Structure
 
 ```bash
-/opt/gh-docker-compose-monitor/
+/opt/git-docker-compose-monitor/
   common/
     compose-deploy.sh
   projects/
     project1/
       config
 /etc/systemd/system/
-  gh-docker-compose-monitor.service
-  gh-docker-compose-monitor.timer
+  git-docker-compose-monitor.service
+  git-docker-compose-monitor.timer
 ```
 
 ## 🚀 Usage
@@ -91,44 +91,44 @@ This ensures `git clone` and `git fetch` work without prompting to trust GitHub 
    Place `compose-deploy.sh` and your `config` file in a directory on your server, for example:
 
    ```bash
-   sudo mkdir -p /opt/gh-docker-compose-monitor/projects/project1
-   sudo cp common/compose-deploy.sh /opt/gh-docker-compose-monitor/common/
-   sudo cp projects/project1/config /opt/gh-docker-compose-monitor/projects/project1/config
-   sudo chmod +x /opt/gh-docker-compose-monitor/common/compose-deploy.sh
+   sudo mkdir -p /opt/git-docker-compose-monitor/projects/project1
+   sudo cp common/compose-deploy.sh /opt/git-docker-compose-monitor/common/
+   sudo cp projects/project1/config /opt/git-docker-compose-monitor/projects/project1/config
+   sudo chmod +x /opt/git-docker-compose-monitor/common/compose-deploy.sh
    ```
 
 3. **Install the systemd service and timer:**  
    Copy the provided unit files to `/etc/systemd/system/`:
 
    ```bash
-   sudo cp systemd/gh-docker-compose-monitor.service /etc/systemd/system/
-   sudo cp systemd/gh-docker-compose-monitor.timer /etc/systemd/system/
+   sudo cp systemd/git-docker-compose-monitor.service /etc/systemd/system/
+   sudo cp systemd/git-docker-compose-monitor.timer /etc/systemd/system/
    ```
 
 4. **Enable and start the timer:**  
 
    ```bash
    sudo systemctl daemon-reload
-   sudo systemctl enable --now gh-docker-compose-monitor.timer
+   sudo systemctl enable --now git-docker-compose-monitor.timer
    ```
 
 5. **View logs:**  
 
    ```bash
-   journalctl -u gh-docker-compose-monitor
+   journalctl -u git-docker-compose-monitor
    ```
 
 6. **Manual run (for testing):**  
    You can manually run the script at any time:
 
    ```bash
-   /opt/gh-docker-compose-monitor/common/compose-deploy.sh --config-file=/opt/gh-docker-compose-monitor/projects/project1/config
+   /opt/git-docker-compose-monitor/common/compose-deploy.sh --config-file=/opt/git-docker-compose-monitor/projects/project1/config
    ```
 
 Example usage:
 
 ```bash
-/opt/gh-docker-compose-monitor/common/compose-deploy.sh --config-file=/opt/gh-docker-compose-monitor/projects/project1/config
+/opt/git-docker-compose-monitor/common/compose-deploy.sh --config-file=/opt/git-docker-compose-monitor/projects/project1/config
 ```
 
 ---

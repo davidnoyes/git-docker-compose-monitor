@@ -1,7 +1,7 @@
 # Project-specific configuration
 PROJECT_NAME=project1
 REPO_URL=git@github.com:your-org/project1-repo.git
-PROJECT_DIR=/opt/gh-docker-compose-monitor/projects/project1
+PROJECT_DIR=/opt/git-docker-compose-monitor/projects/project1
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your-token
 
 # How often (in minutes) to force pull floating tag images (latest, develop, etc.)

@@ -1,5 +1,5 @@
 [Unit]
-Description=Periodic Monitor for GitHub Compose
+Description=Periodic Monitor for Git Docker Compose
 
 [Timer]
 OnBootSec=5min
